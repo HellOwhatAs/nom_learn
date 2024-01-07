@@ -8,7 +8,7 @@ pub struct Mem<T: Clone + Copy> {
 
 impl<T: Clone + Copy> Mem<T> {
     pub fn new() -> Self {
-        Mem { mem: vec![], malloced: HashMap::new() }
+        Mem { mem: vec![None], malloced: HashMap::new() }
     }
 
     pub fn malloc(&mut self, size: usize, init: T) -> usize {
