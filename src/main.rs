@@ -1,3 +1,6 @@
+mod mem;
+
+use mem::Mem;
 use std::collections::HashMap;
 use std::error::Error;
 use nom::IResult;
@@ -19,40 +22,46 @@ pub enum Expr<'a> {
 }
 
 impl<'a> Expr<'a> {
-    fn eval(&self, registers: &'a HashMap<&'a str, i128>) -> i128 {
+    fn eval(&self, registers: &'a HashMap<&'a str, i128>, mem: &mut Mem) -> i128 {
         match self {
             Expr::BinOp(op, l, r) => match op {
-                &"+" => l.eval(registers) + r.eval(registers),
-                &"-" => l.eval(registers) - r.eval(registers),
-                &"*" => l.eval(registers) * r.eval(registers),
-                &"/" => l.eval(registers) / r.eval(registers),
-                &"%" => l.eval(registers) % r.eval(registers),
-                &"^" => l.eval(registers).pow(r.eval(registers).try_into().unwrap()),
-                &">" => (l.eval(registers) > r.eval(registers)) as i128,
-                &">=" => (l.eval(registers) >= r.eval(registers)) as i128,
-                &"<" => (l.eval(registers) < r.eval(registers)) as i128,
-                &"<=" => (l.eval(registers) <= r.eval(registers)) as i128,
-                &"==" => (l.eval(registers) == r.eval(registers)) as i128,
-                &"!=" => (l.eval(registers) != r.eval(registers)) as i128,
-                &"&&" => (l.eval(registers) !=0  && r.eval(registers) != 0) as i128,
-                &"||" => (l.eval(registers) !=0  || r.eval(registers) != 0) as i128,
+                &"+" => l.eval(registers, mem) + r.eval(registers, mem),
+                &"-" => l.eval(registers, mem) - r.eval(registers, mem),
+                &"*" => l.eval(registers, mem) * r.eval(registers, mem),
+                &"/" => l.eval(registers, mem) / r.eval(registers, mem),
+                &"%" => l.eval(registers, mem) % r.eval(registers, mem),
+                &"^" => l.eval(registers, mem).pow(r.eval(registers, mem) as u32),
+                &">" => (l.eval(registers, mem) > r.eval(registers, mem)) as i128,
+                &">=" => (l.eval(registers, mem) >= r.eval(registers, mem)) as i128,
+                &"<" => (l.eval(registers, mem) < r.eval(registers, mem)) as i128,
+                &"<=" => (l.eval(registers, mem) <= r.eval(registers, mem)) as i128,
+                &"==" => (l.eval(registers, mem) == r.eval(registers, mem)) as i128,
+                &"!=" => (l.eval(registers, mem) != r.eval(registers, mem)) as i128,
+                &"&&" => (l.eval(registers, mem) !=0  && r.eval(registers, mem) != 0) as i128,
+                &"||" => (l.eval(registers, mem) !=0  || r.eval(registers, mem) != 0) as i128,
                 _ => unreachable!()
             },
             Expr::UnOp(op, e) => match op {
-                &"+" => e.eval(registers),
-                &"-" => - e.eval(registers),
-                &"*" => todo!(),
-                &"!" => (e.eval(registers) == 0) as i128,
+                &"+" => e.eval(registers, mem),
+                &"-" => - e.eval(registers, mem),
+                &"*" => {
+                    let start = e.eval(registers, mem);
+                    match mem.mem.get(start as usize) {
+                        Some(Some(res)) => *res,
+                        _ => panic!("visiting invalid memory")
+                    }
+                },
+                &"!" => (e.eval(registers, mem) == 0) as i128,
                 _ => unreachable!()
             },
             Expr::Call(fname, opt_e) => match (fname, opt_e) {
                 (&"write_int", Some(e)) => {
-                    let res = e.eval(registers);
+                    let res = e.eval(registers, mem);
                     print!("{}", res);
                     res
                 },
                 (&"write_char", Some(e)) => {
-                    let res = e.eval(registers);
+                    let res = e.eval(registers, mem);
                     print!("{}", res as u8 as char);
                     res
                 },
@@ -64,10 +73,18 @@ impl<'a> Expr<'a> {
                     let res: char = read!();
                     res as i128
                 },
-                _ => unreachable!()
+                (&"malloc", Some(e)) => {
+                    let size = e.eval(registers, mem) as usize;
+                    mem.malloc(size, None) as i128
+                },
+                (&"free", Some(e)) => {
+                    let start = e.eval(registers, mem) as usize;
+                    mem.free(start) as i128
+                },
+                otherwise => panic!("invalid function call: {:?}", otherwise)
             },
-            Expr::Int(i) => (*i).try_into().unwrap(),
-            Expr::Ident(x) => *registers.get(x).unwrap_or(&0)
+            Expr::Int(i) => (*i) as i128,
+            Expr::Ident(x) => *registers.get(x).expect(&format!("undefined variable {x}"))
         }
     }
 }
@@ -179,10 +196,10 @@ pub fn parse_expr(input: &str) -> IResult<&str, Box<Expr>> {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let (remaining_input, output) = parse_expr("write_int(read_int()*k)+write_char(10)-10")?;
+    let (remaining_input, output) = parse_expr("*(malloc(2)+1)")?;
     let mut registers = HashMap::new();
     registers.insert("k", 3000);
     println!("{:?} {:?}", remaining_input, output);
-    println!("{}", output.eval(&registers));
+    println!("{}", output.eval(&registers, &mut Mem::new()));
     Ok(())
 }
