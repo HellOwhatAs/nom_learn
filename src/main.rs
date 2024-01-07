@@ -2,11 +2,10 @@ mod mem;
 
 use mem::Mem;
 use std::collections::HashMap;
-use std::error::Error;
 use nom::IResult;
 use nom::character::complete as c;
 use nom::branch::alt;
-use nom::sequence::{tuple, delimited, preceded, terminated};
+use nom::sequence::{tuple, delimited, preceded, terminated, separated_pair, pair};
 use nom::bytes::complete::tag;
 use nom::multi::many0;
 use nom::combinator::{recognize, opt};
@@ -89,7 +88,7 @@ impl<'a> Expr<'a> {
     }
 }
 
-pub fn identifier<'a>(s: &'a str) -> IResult<&'a str, &'a str> {
+pub fn identifier(s: &str) -> IResult<&str, &str> {
     recognize(tuple((
         alt((tag("_"), c::alpha1)),
         many0(alt((tag("_"), c::alphanumeric1)))
@@ -107,36 +106,51 @@ pub fn parse_ident(input: &str) -> IResult<&str, Box<Expr>> {
 }
 
 pub fn parse_call(input: &str) -> IResult<&str, Box<Expr>> {
-    let (rem, res) = tuple((identifier, delimited(c::space0, tag("("), c::space0), opt(parse_expr), preceded(c::space0, tag(")"))))(input)?;
+    let (rem, res) = tuple((
+        identifier,
+        delimited(c::multispace0, tag("("), c::multispace0),
+        opt(parse_expr),
+        preceded(c::multispace0, tag(")"))
+    ))(input)?;
     Ok((rem, Box::new(Expr::Call(res.0, res.2))))
 }
 
-pub fn parse_single(input: &str) -> IResult<&str, Box<Expr>> {
+pub fn parse_single_expr(input: &str) -> IResult<&str, Box<Expr>> {
     alt((
         parse_uint,
         parse_call,
         parse_ident,
-        delimited(terminated(tag("("), c::space0), parse_expr, preceded(c::space0, tag(")"))),
+        delimited(
+            terminated(tag("("), c::multispace0), 
+            parse_expr, 
+            preceded(c::multispace0, tag(")"))
+        )
     ))(input)
 }
 
 pub fn parse_pow(input: &str) -> IResult<&str, Box<Expr>> {
-    match tuple((parse_single, delimited(c::space0, tag("^"), c::space0), parse_pow))(input) {
+    match tuple((parse_single_expr, delimited(c::multispace0, tag("^"), c::multispace0), parse_pow))(input) {
         Ok((rem, res)) => Ok((rem, Box::new(Expr::BinOp("^", res.0, res.2)))),
-        _ => parse_single(input),
+        _ => parse_single_expr(input),
     }
 }
 
 pub fn parse_higher_unop(input: &str) -> IResult<&str, Box<Expr>> {
     fn higher_unop(input: &str) -> IResult<&str, Box<Expr>> {
-        let (rem, res) = tuple((terminated(tag("*"), c::space0), parse_higher_unop))(input)?;
+        let (rem, res) = tuple((terminated(tag("*"), c::multispace0), parse_higher_unop))(input)?;
         Ok((rem, Box::new(Expr::UnOp(res.0, res.1))))
     }
     alt((higher_unop, parse_pow))(input)
 }
 
 pub fn parse_higher_binop(input: &str) -> IResult<&str, Box<Expr>> {
-    let (rem, (mut res, res1)) = tuple((parse_higher_unop, many0(tuple((delimited(c::space0, alt((tag("*"), tag("/"), tag("%"))), c::space0), parse_higher_unop)))))(input)?;
+    let (rem, (mut res, res1)) = tuple((
+        parse_higher_unop,
+        many0(tuple((
+            delimited(c::multispace0, alt((tag("*"), tag("/"), tag("%"))), c::multispace0),
+            parse_higher_unop
+        )))
+    ))(input)?;
     for (op, e) in res1.into_iter() {
         res = Box::new(Expr::BinOp(op, res, e));
     }
@@ -145,14 +159,20 @@ pub fn parse_higher_binop(input: &str) -> IResult<&str, Box<Expr>> {
 
 pub fn parse_lower_unop(input: &str) -> IResult<&str, Box<Expr>> {
     fn lower_unop(input: &str) -> IResult<&str, Box<Expr>> {
-        let (rem, res) = tuple((terminated(alt((tag("+"), tag("-"))), c::space0), parse_lower_unop))(input)?;
+        let (rem, res) = tuple((terminated(alt((tag("+"), tag("-"))), c::multispace0), parse_lower_unop))(input)?;
         Ok((rem, Box::new(Expr::UnOp(res.0, res.1))))
     }
     alt((lower_unop, parse_higher_binop))(input)
 }
 
 pub fn parse_lower_binop(input: &str) -> IResult<&str, Box<Expr>> {
-    let (rem, (mut res, res1)) = tuple((parse_lower_unop, many0(tuple((delimited(c::space0, alt((tag("+"), tag("-"))), c::space0), parse_lower_unop)))))(input)?;
+    let (rem, (mut res, res1)) = tuple((
+        parse_lower_unop,
+        many0(tuple((
+            delimited(c::multispace0, alt((tag("+"), tag("-"))), c::multispace0),
+            parse_lower_unop
+        )))
+    ))(input)?;
     for (op, e) in res1.into_iter() {
         res = Box::new(Expr::BinOp(op, res, e));
     }
@@ -160,7 +180,16 @@ pub fn parse_lower_binop(input: &str) -> IResult<&str, Box<Expr>> {
 }
 
 pub fn parse_cmp_binop(input: &str) -> IResult<&str, Box<Expr>> {
-    let (rem, (mut res, res1)) = tuple((parse_lower_binop, many0(tuple((delimited(c::space0, alt((tag(">"), tag(">="), tag("<"), tag("<="), tag("=="), tag("!="))), c::space0), parse_lower_binop)))))(input)?;
+    let (rem, (mut res, res1)) = tuple((
+        parse_lower_binop,
+        many0(tuple((
+            delimited(
+                c::multispace0, 
+                alt((tag(">="), tag(">"), tag("<="), tag("<"), tag("=="), tag("!="))), 
+                c::multispace0),
+            parse_lower_binop
+        )))
+    ))(input)?;
     for (op, e) in res1.into_iter() {
         res = Box::new(Expr::BinOp(op, res, e));
     }
@@ -169,14 +198,20 @@ pub fn parse_cmp_binop(input: &str) -> IResult<&str, Box<Expr>> {
 
 pub fn parse_not_unop(input: &str) -> IResult<&str, Box<Expr>> {
     fn not_unop(input: &str) -> IResult<&str, Box<Expr>> {
-        let (rem, res) = tuple((terminated(tag("!"), c::space0), parse_not_unop))(input)?;
+        let (rem, res) = tuple((terminated(tag("!"), c::multispace0), parse_not_unop))(input)?;
         Ok((rem, Box::new(Expr::UnOp(res.0, res.1))))
     }
     alt((not_unop, parse_cmp_binop))(input)
 }
 
 pub fn parse_and_binop(input: &str) -> IResult<&str, Box<Expr>> {
-    let (rem, (mut res, res1)) = tuple((parse_not_unop, many0(tuple((delimited(c::space0, tag("&&"), c::space0), parse_not_unop)))))(input)?;
+    let (rem, (mut res, res1)) = tuple((
+        parse_not_unop,
+        many0(tuple((
+            delimited(c::multispace0, tag("&&"), c::multispace0), 
+            parse_not_unop
+        )))
+    ))(input)?;
     for (op, e) in res1.into_iter() {
         res = Box::new(Expr::BinOp(op, res, e));
     }
@@ -184,7 +219,13 @@ pub fn parse_and_binop(input: &str) -> IResult<&str, Box<Expr>> {
 }
 
 pub fn parse_or_binop(input: &str) -> IResult<&str, Box<Expr>> {
-    let (rem, (mut res, res1)) = tuple((parse_and_binop, many0(tuple((delimited(c::space0, tag("||"), c::space0), parse_and_binop)))))(input)?;
+    let (rem, (mut res, res1)) = tuple((
+        parse_and_binop,
+        many0(tuple((
+            delimited(c::multispace0, tag("||"), c::multispace0), 
+            parse_and_binop
+        )))
+    ))(input)?;
     for (op, e) in res1.into_iter() {
         res = Box::new(Expr::BinOp(op, res, e));
     }
@@ -195,11 +236,143 @@ pub fn parse_expr(input: &str) -> IResult<&str, Box<Expr>> {
     parse_or_binop(input)
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let (remaining_input, output) = parse_expr("write_int ( read_int ( ) * k ) + write_char ( 10 ) - 10 + * ( malloc ( 2 ) + 1 )")?;
+#[derive(Debug)]
+pub enum Cmd<'a> {
+    Expr(Box<Expr<'a>>),
+    Decl(&'a str),
+    Assign(Box<Expr<'a>>, Box<Expr<'a>>),
+    Seq(Vec<Box<Cmd<'a>>>),
+    If(Box<Expr<'a>>, Box<Cmd<'a>>, Box<Cmd<'a>>),
+    While(Box<Expr<'a>>, Box<Cmd<'a>>),
+}
+
+impl<'a> Cmd<'a> {
+    fn exec(&mut self, registers: &'a mut HashMap<&'a str, i128>, mem: &mut Mem<i128>) {
+        todo!()
+    }
+}
+
+pub fn parse_expr_cmd(input: &str) -> IResult<&str, Box<Cmd>> {
+    let (rem, res) = parse_expr(input)?;
+    Ok((rem, Box::new(Cmd::Expr(res))))
+}
+
+pub fn parse_decl(input: &str) -> IResult<&str, Box<Cmd>> {
+    let (rem, res) = preceded(tuple((tag("var"), c::multispace1)), identifier)(input)?;
+    Ok((rem, Box::new(Cmd::Decl(res))))
+}
+
+pub fn parse_assign(input: &str) -> IResult<&str, Box<Cmd>> {
+    let (rem, res) = separated_pair(
+        parse_expr, 
+        delimited(c::multispace0, tag("="), c::multispace0), 
+        parse_expr
+    )(input)?;
+    Ok((rem, Box::new(Cmd::Assign(res.0, res.1))))
+}
+
+pub fn parse_single_cmd(input: &str) -> IResult<&str, Box<Cmd>> {
+    alt((parse_decl, parse_assign, parse_expr_cmd))(input)
+}
+
+pub fn parse_if(input: &str) -> IResult<&str, Box<Cmd>> {
+    let (rem, res) = tuple((
+        recognize(tuple((tag("if"), c::multispace1))),
+        parse_expr,
+        recognize(tuple((opt(preceded(c::multispace1, tag("then"))), c::multispace0, tag("{"), c::multispace0))),
+        parse_cmd,
+        recognize(pair(c::multispace0, tag("}"))),
+        opt(delimited(
+            tuple((c::multispace0, tag("else"), c::multispace0, tag("{"), c::multispace0)),
+            parse_cmd,
+            tuple((c::multispace0, tag("}"))),
+        ))
+    ))(input)?;
+    Ok((
+        rem,
+        Box::new(Cmd::If(
+            res.1,
+            res.3,
+            match res.5 {
+                Some(x) => x,
+                None => Box::new(Cmd::Seq(vec![]))
+            }
+        ))
+    ))
+}
+
+fn parse_while(input: &str) -> IResult<&str, Box<Cmd>> {
+    let (rem, res) = tuple((
+        tag("while"),
+        preceded(c::multispace1, parse_expr),
+        opt(preceded(c::multispace1, tag("do"))),
+        delimited(c::multispace0, tag("{"), c::multispace0),
+        parse_cmd,
+        preceded(c::multispace0, tag("}")),
+    ))(input)?;
+    Ok((rem, Box::new(Cmd::While(res.1, res.4))))
+}
+
+pub fn parse_block_cmd(input: &str) -> IResult<&str, Box<Cmd>> {
+    alt((parse_if, parse_while))(input)
+}
+
+pub fn parse_cmd(input: &str) -> IResult<&str, Box<Cmd>> {
+    let (rem, (mut res, opt_cmd)) = tuple((
+        many0(preceded(c::multispace0, alt((
+            terminated(parse_single_cmd, preceded(c::multispace0, tag(";"))),
+            terminated(parse_block_cmd, opt(preceded(c::multispace0, tag(";"))))
+        )))),
+        opt(preceded(c::multispace0, parse_single_cmd))
+    ))(input)?;
+    if let Some(cmd) = opt_cmd {
+        res.push(cmd);
+    }
+    Ok((rem, Box::new(Cmd::Seq(res))))
+}
+
+fn main() {
+
+}
+
+#[test]
+fn test_parse_expr() {
+    let src = "1000000 / (1 + 2 * 3 ^ 4 + 5 - 7 * 5474 / 9110)";
+    let (remaining_input, output) = parse_expr(src).unwrap();
+    println!("{:?} {:?}", remaining_input, output);
+}
+
+#[test]
+fn test_eval_expr() {
+    let src = "write_int ( read_int ( ) * k ) + write_char ( 10 ) - 10 + * ( malloc ( 2 ) + 1 )";
+    let (remaining_input, output) = parse_expr(src).unwrap();
     let mut registers = HashMap::new();
     registers.insert("k", 3000);
     println!("{:?} {:?}", remaining_input, output);
     println!("{}", output.eval(&registers, &mut Mem::new()));
-    Ok(())
+}
+
+#[test]
+fn test_parse_cmd() {
+    let src = "
+    var n; var i; var p; var q; var s;
+    n = read_int();
+    i = 0; p = 0;
+    while (i < n) do {
+        q = malloc(16);
+        * q = read_int();
+        * (q + 8) = p;
+        p = q;
+        i = i + 1
+    };
+    s = 0;
+    while (p != 0) do {
+        s = s + * p;
+        p = * (p + 8)
+    };
+    write_int(s);
+    write_char(10)
+    ";
+    let (remaining_input, output) = delimited(c::multispace0, parse_cmd, c::multispace0)(&src).unwrap();
+    println!("{:?} {:?}", remaining_input, output);
 }
