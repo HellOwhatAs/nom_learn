@@ -6,7 +6,7 @@ use std::error::Error;
 use nom::IResult;
 use nom::character::complete as c;
 use nom::branch::alt;
-use nom::sequence::{tuple, delimited};
+use nom::sequence::{tuple, delimited, preceded, terminated};
 use nom::bytes::complete::tag;
 use nom::multi::many0;
 use nom::combinator::{recognize, opt};
@@ -107,7 +107,7 @@ pub fn parse_ident(input: &str) -> IResult<&str, Box<Expr>> {
 }
 
 pub fn parse_call(input: &str) -> IResult<&str, Box<Expr>> {
-    let (rem, res) = tuple((identifier, tag("("), opt(parse_expr), tag(")")))(input)?;
+    let (rem, res) = tuple((identifier, delimited(c::space0, tag("("), c::space0), opt(parse_expr), preceded(c::space0, tag(")"))))(input)?;
     Ok((rem, Box::new(Expr::Call(res.0, res.2))))
 }
 
@@ -116,12 +116,12 @@ pub fn parse_single(input: &str) -> IResult<&str, Box<Expr>> {
         parse_uint,
         parse_call,
         parse_ident,
-        delimited(tag("("), parse_expr, tag(")")),
+        delimited(terminated(tag("("), c::space0), parse_expr, preceded(c::space0, tag(")"))),
     ))(input)
 }
 
 pub fn parse_pow(input: &str) -> IResult<&str, Box<Expr>> {
-    match tuple((parse_single, tag("^"), parse_pow))(input) {
+    match tuple((parse_single, delimited(c::space0, tag("^"), c::space0), parse_pow))(input) {
         Ok((rem, res)) => Ok((rem, Box::new(Expr::BinOp("^", res.0, res.2)))),
         _ => parse_single(input),
     }
@@ -129,14 +129,14 @@ pub fn parse_pow(input: &str) -> IResult<&str, Box<Expr>> {
 
 pub fn parse_higher_unop(input: &str) -> IResult<&str, Box<Expr>> {
     fn higher_unop(input: &str) -> IResult<&str, Box<Expr>> {
-        let (rem, res) = tuple((tag("*"), parse_higher_unop))(input)?;
+        let (rem, res) = tuple((terminated(tag("*"), c::space0), parse_higher_unop))(input)?;
         Ok((rem, Box::new(Expr::UnOp(res.0, res.1))))
     }
     alt((higher_unop, parse_pow))(input)
 }
 
 pub fn parse_higher_binop(input: &str) -> IResult<&str, Box<Expr>> {
-    let (rem, (mut res, res1)) = tuple((parse_higher_unop, many0(tuple((alt((tag("*"), tag("/"), tag("%"))), parse_higher_unop)))))(input)?;
+    let (rem, (mut res, res1)) = tuple((parse_higher_unop, many0(tuple((delimited(c::space0, alt((tag("*"), tag("/"), tag("%"))), c::space0), parse_higher_unop)))))(input)?;
     for (op, e) in res1.into_iter() {
         res = Box::new(Expr::BinOp(op, res, e));
     }
@@ -145,14 +145,14 @@ pub fn parse_higher_binop(input: &str) -> IResult<&str, Box<Expr>> {
 
 pub fn parse_lower_unop(input: &str) -> IResult<&str, Box<Expr>> {
     fn lower_unop(input: &str) -> IResult<&str, Box<Expr>> {
-        let (rem, res) = tuple((alt((tag("+"), tag("-"))), parse_lower_unop))(input)?;
+        let (rem, res) = tuple((terminated(alt((tag("+"), tag("-"))), c::space0), parse_lower_unop))(input)?;
         Ok((rem, Box::new(Expr::UnOp(res.0, res.1))))
     }
     alt((lower_unop, parse_higher_binop))(input)
 }
 
 pub fn parse_lower_binop(input: &str) -> IResult<&str, Box<Expr>> {
-    let (rem, (mut res, res1)) = tuple((parse_lower_unop, many0(tuple((alt((tag("+"), tag("-"))), parse_lower_unop)))))(input)?;
+    let (rem, (mut res, res1)) = tuple((parse_lower_unop, many0(tuple((delimited(c::space0, alt((tag("+"), tag("-"))), c::space0), parse_lower_unop)))))(input)?;
     for (op, e) in res1.into_iter() {
         res = Box::new(Expr::BinOp(op, res, e));
     }
@@ -160,7 +160,7 @@ pub fn parse_lower_binop(input: &str) -> IResult<&str, Box<Expr>> {
 }
 
 pub fn parse_cmp_binop(input: &str) -> IResult<&str, Box<Expr>> {
-    let (rem, (mut res, res1)) = tuple((parse_lower_binop, many0(tuple((alt((tag(">"), tag(">="), tag("<"), tag("<="), tag("=="), tag("!="))), parse_lower_binop)))))(input)?;
+    let (rem, (mut res, res1)) = tuple((parse_lower_binop, many0(tuple((delimited(c::space0, alt((tag(">"), tag(">="), tag("<"), tag("<="), tag("=="), tag("!="))), c::space0), parse_lower_binop)))))(input)?;
     for (op, e) in res1.into_iter() {
         res = Box::new(Expr::BinOp(op, res, e));
     }
@@ -169,14 +169,14 @@ pub fn parse_cmp_binop(input: &str) -> IResult<&str, Box<Expr>> {
 
 pub fn parse_not_unop(input: &str) -> IResult<&str, Box<Expr>> {
     fn not_unop(input: &str) -> IResult<&str, Box<Expr>> {
-        let (rem, res) = tuple((tag("!"), parse_not_unop))(input)?;
+        let (rem, res) = tuple((terminated(tag("!"), c::space0), parse_not_unop))(input)?;
         Ok((rem, Box::new(Expr::UnOp(res.0, res.1))))
     }
     alt((not_unop, parse_cmp_binop))(input)
 }
 
 pub fn parse_and_binop(input: &str) -> IResult<&str, Box<Expr>> {
-    let (rem, (mut res, res1)) = tuple((parse_not_unop, many0(tuple((tag("&&"), parse_not_unop)))))(input)?;
+    let (rem, (mut res, res1)) = tuple((parse_not_unop, many0(tuple((delimited(c::space0, tag("&&"), c::space0), parse_not_unop)))))(input)?;
     for (op, e) in res1.into_iter() {
         res = Box::new(Expr::BinOp(op, res, e));
     }
@@ -184,7 +184,7 @@ pub fn parse_and_binop(input: &str) -> IResult<&str, Box<Expr>> {
 }
 
 pub fn parse_or_binop(input: &str) -> IResult<&str, Box<Expr>> {
-    let (rem, (mut res, res1)) = tuple((parse_and_binop, many0(tuple((tag("||"), parse_and_binop)))))(input)?;
+    let (rem, (mut res, res1)) = tuple((parse_and_binop, many0(tuple((delimited(c::space0, tag("||"), c::space0), parse_and_binop)))))(input)?;
     for (op, e) in res1.into_iter() {
         res = Box::new(Expr::BinOp(op, res, e));
     }
@@ -196,7 +196,7 @@ pub fn parse_expr(input: &str) -> IResult<&str, Box<Expr>> {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let (remaining_input, output) = parse_expr("*(malloc(2)+1)")?;
+    let (remaining_input, output) = parse_expr("write_int ( read_int ( ) * k ) + write_char ( 10 ) - 10 + * ( malloc ( 2 ) + 1 )")?;
     let mut registers = HashMap::new();
     registers.insert("k", 3000);
     println!("{:?} {:?}", remaining_input, output);
