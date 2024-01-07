@@ -21,7 +21,7 @@ pub enum Expr<'a> {
 }
 
 impl<'a> Expr<'a> {
-    fn eval(&self, registers: &'a HashMap<&'a str, i128>, mem: &mut Mem<i128>) -> i128 {
+    pub fn eval(&self, registers: &'a HashMap<&'a str, i128>, mem: &mut Mem<i128>) -> i128 {
         match self {
             Expr::BinOp(op, l, r) => match op {
                 &"+" => l.eval(registers, mem) + r.eval(registers, mem),
@@ -247,7 +247,7 @@ pub enum Cmd<'a> {
 }
 
 impl<'a> Cmd<'a> {
-    fn exec(&mut self, registers: &'a mut HashMap<&'a str, i128>, mem: &mut Mem<i128>) {
+    pub fn exec(&mut self, registers: &'a mut HashMap<&'a str, i128>, mem: &mut Mem<i128>) {
         todo!()
     }
 }
