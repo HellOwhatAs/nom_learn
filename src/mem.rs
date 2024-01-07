@@ -1,17 +1,17 @@
 use std::collections::HashMap;
 
 #[derive(Debug)]
-pub struct Mem {
-    pub mem: Vec<Option<i128>>,
+pub struct Mem<T: Clone + Copy> {
+    pub mem: Vec<Option<T>>,
     pub malloced: HashMap<usize, usize>
 }
 
-impl Mem {
+impl<T: Clone + Copy> Mem<T> {
     pub fn new() -> Self {
         Mem { mem: vec![], malloced: HashMap::new() }
     }
 
-    pub fn malloc(&mut self, size: usize, init: Option<i128>) -> usize {
+    pub fn malloc(&mut self, size: usize, init: T) -> usize {
         let (mut count, mut start) = (0, 0);
         for (idx, elem) in self.mem.iter_mut().enumerate() {
             match elem {
@@ -20,7 +20,7 @@ impl Mem {
                     if count == size {
                         self.malloced.insert(start, size);
                         for i in self.mem[start..start+size].iter_mut() {
-                            *i = Some(init.unwrap_or(0));
+                            *i = Some(init);
                         }
                         return start;
                     }
@@ -33,7 +33,7 @@ impl Mem {
         }
         start = self.mem.len();
         self.malloced.insert(start, size);
-        self.mem.append(&mut vec![Some(init.unwrap_or(0)); size]);
+        self.mem.append(&mut vec![Some(init); size]);
         return start;
     }
 

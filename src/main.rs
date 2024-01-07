@@ -18,11 +18,11 @@ pub enum Expr<'a> {
     UnOp(&'a str, Box<Expr<'a>>),
     Call(&'a str, Option<Box<Expr<'a>>>),
     Ident(&'a str),
-    Int(u128)
+    Int(i128)
 }
 
 impl<'a> Expr<'a> {
-    fn eval(&self, registers: &'a HashMap<&'a str, i128>, mem: &mut Mem) -> i128 {
+    fn eval(&self, registers: &'a HashMap<&'a str, i128>, mem: &mut Mem<i128>) -> i128 {
         match self {
             Expr::BinOp(op, l, r) => match op {
                 &"+" => l.eval(registers, mem) + r.eval(registers, mem),
@@ -75,7 +75,7 @@ impl<'a> Expr<'a> {
                 },
                 (&"malloc", Some(e)) => {
                     let size = e.eval(registers, mem) as usize;
-                    mem.malloc(size, None) as i128
+                    mem.malloc(size, 0) as i128
                 },
                 (&"free", Some(e)) => {
                     let start = e.eval(registers, mem) as usize;
@@ -96,9 +96,9 @@ pub fn identifier<'a>(s: &'a str) -> IResult<&'a str, &'a str> {
     )))(s)
 }
 
-pub fn parse_u128(input: &str) -> IResult<&str, Box<Expr>> {
+pub fn parse_uint(input: &str) -> IResult<&str, Box<Expr>> {
     let (rem, res) = c::u128(input)?;
-    Ok((rem, Box::new(Expr::Int(res))))
+    Ok((rem, Box::new(Expr::Int(res as i128))))
 }
 
 pub fn parse_ident(input: &str) -> IResult<&str, Box<Expr>> {
@@ -113,7 +113,7 @@ pub fn parse_call(input: &str) -> IResult<&str, Box<Expr>> {
 
 pub fn parse_single(input: &str) -> IResult<&str, Box<Expr>> {
     alt((
-        parse_u128,
+        parse_uint,
         parse_call,
         parse_ident,
         delimited(tag("("), parse_expr, tag(")")),
