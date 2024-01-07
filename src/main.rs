@@ -1,6 +1,7 @@
 mod mem;
 
 use mem::Mem;
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use nom::IResult;
 use nom::character::complete as c;
@@ -247,8 +248,52 @@ pub enum Cmd<'a> {
 }
 
 impl<'a> Cmd<'a> {
-    pub fn exec(&mut self, registers: &'a mut HashMap<&'a str, i128>, mem: &mut Mem<i128>) {
-        todo!()
+    pub fn exec(&self, registers: &mut HashMap<&'a str, i128>, mem: &mut Mem<i128>) {
+        match self {
+            Cmd::Expr(e) => {
+                e.eval(registers, mem);
+            },
+            Cmd::Decl(ident) => {
+                registers.insert(ident, 0);
+            },
+            Cmd::Assign(e1, e2) => {
+                match e1.borrow() {
+                    Expr::UnOp("*", e1) => {
+                        let tmp = e2.eval(registers, mem);
+                        let index = e1.eval(registers, mem) as usize;
+                        match mem.mem.get_mut(index) {
+                            Some(m) => {
+                                *m = Some(tmp);
+                            },
+                            None => panic!("cannot assign to invalid memory")
+                        }
+                    },
+                    Expr::Ident(ident) => {
+                        let tmp = e2.eval(registers, mem);
+                        registers.insert(ident, tmp);
+                    },
+                    _ => panic!("cannot assign to {:?}", e1)
+                }
+            },
+            Cmd::Seq(arr) => {
+                for c in arr.iter() {
+                    c.exec(registers, mem);
+                }
+            },
+            Cmd::If(cond, c1, c2) => {
+                if cond.eval(registers, mem) != 0 {
+                    c1.exec(registers, mem);
+                }
+                else {
+                    c2.exec(registers, mem);
+                }
+            },
+            Cmd::While(cond, c) => {
+                while cond.eval(registers, mem) != 0 {
+                    c.exec(registers, mem);
+                }
+            },
+        };
     }
 }
 
@@ -375,4 +420,31 @@ fn test_parse_cmd() {
     ";
     let (remaining_input, output) = delimited(c::multispace0, parse_cmd, c::multispace0)(&src).unwrap();
     println!("{:?} {:?}", remaining_input, output);
+}
+
+#[test]
+fn test_exec_cmd() {
+    let (registers, mem) = (&mut HashMap::new(), &mut Mem::new());
+    parse_cmd("
+    var n; var i; var p; var q; var s;
+    n = read_int();
+    i = 0; p = 0;
+    while (i < n) do {
+        q = malloc(2);
+        * q = read_int();
+        * (q + 1) = p;
+        p = q;
+        i = i + 1
+    };
+    s = 0;
+    while (p != 0) do {
+        s = s + * p;
+        tmp = * (p + 1);
+        free(p);
+        p = tmp;
+    };
+    write_int(s);
+    write_char(10)
+    ").unwrap().1.exec(registers, mem);
+    println!("{:?}", (registers, mem));
 }
