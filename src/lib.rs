@@ -1,6 +1,6 @@
 mod mem;
 
-use mem::Mem;
+pub use mem::Mem;
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use nom::IResult;
@@ -374,10 +374,6 @@ pub fn parse_cmd(input: &str) -> IResult<&str, Box<Cmd>> {
         res.push(cmd);
     }
     Ok((rem, Box::new(Cmd::Seq(res))))
-}
-
-fn main() {
-
 }
 
 #[test]
