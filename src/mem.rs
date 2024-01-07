@@ -12,8 +12,8 @@ impl<T: Clone + Copy> Mem<T> {
     }
 
     pub fn malloc(&mut self, size: usize, init: T) -> usize {
-        let (mut count, mut start) = (0, 0);
-        for (idx, elem) in self.mem.iter_mut().enumerate() {
+        let (mut count, mut start) = (0, 1);
+        for (idx, elem) in self.mem[1..].iter_mut().enumerate() {
             match elem {
                 None => {
                     count += 1;
