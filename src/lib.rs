@@ -55,11 +55,11 @@ pub enum Expr<'a> {
 }
 
 impl<'a> Expr<'a> {
-    pub fn eval(
+    pub fn eval<'b>(
         &self,
         registers: &'a HashMap<&'a str, i128>,
         mem: &mut Mem<i128>,
-        callables: &mut HashMap<&str, Box<dyn FnMut(i128) -> i128>>,
+        callables: &mut HashMap<&str, Box<dyn FnMut(i128) -> i128 + 'b>>,
     ) -> i128 {
         match self {
             Expr::BinOp(op, l, r) => match op {
@@ -318,11 +318,11 @@ pub enum Cmd<'a> {
 }
 
 impl<'a> Cmd<'a> {
-    pub fn exec(
+    pub fn exec<'b>(
         &self,
         registers: &mut HashMap<&'a str, i128>,
         mem: &mut Mem<i128>,
-        callables: &mut HashMap<&str, Box<dyn FnMut(i128) -> i128>>,
+        callables: &mut HashMap<&str, Box<dyn FnMut(i128) -> i128 + 'b>>,
     ) {
         match self {
             Cmd::Expr(e) => {
@@ -556,4 +556,34 @@ fn test_rustfunc() {
     .1
     .exec(&mut registers, &mut mem, &mut callables);
     println!("{:?}", (registers, mem));
+}
+
+#[test]
+fn test_typ() {
+    use std::fmt::Write;
+    let input: &[u8] = "write_int(123 + 456)".as_bytes();
+
+    let src = std::str::from_utf8(input)
+        .map_err(|op| format!("Invalid UTF-8: {}", op))
+        .unwrap();
+    let mut buf = String::new();
+    {
+        let (mut registers, mut mem) = (HashMap::new(), Mem::new());
+        let mut callables: HashMap<&str, Box<dyn FnMut(i128) -> i128>> = builtin_callables();
+        callables.insert("add2", Box::new(|x| x + 2));
+        callables.insert(
+            "write_int",
+            Box::new(|x| {
+                buf.write_str(&x.to_string()).unwrap();
+                x
+            }),
+        );
+        parse_cmd(src)
+            .unwrap()
+            .1
+            .exec(&mut registers, &mut mem, &mut callables);
+    }
+
+    let output: Result<Vec<u8>, String> = Ok(buf.as_bytes().to_vec());
+    println!("{:?}", output);
 }
