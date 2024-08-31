@@ -145,13 +145,16 @@ impl<'a> Expr<'a> {
                         .unwrap_or(Ok(0))?;
                     callables
                         .get_mut(otherwise)
-                        .expect(&format!("undefined function: {:?}", otherwise))(
+                        .ok_or(format!("undefined function: {:?}", otherwise))?(
                         arg
                     )?
                 }
             }),
             Expr::Int(i) => Ok(*i),
-            Expr::Ident(x) => Ok(*registers.get(x).expect(&format!("undefined variable: {x}"))),
+            Expr::Ident(x) => registers
+                .get(x)
+                .and_then(|e| Some(*e))
+                .ok_or(format!("undefined variable: {x}").into()),
         }
     }
 }
