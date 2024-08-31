@@ -3,12 +3,15 @@ use std::collections::HashMap;
 #[derive(Debug)]
 pub struct Mem<T: Clone + Copy> {
     pub mem: Vec<Option<T>>,
-    pub malloced: HashMap<usize, usize>
+    pub malloced: HashMap<usize, usize>,
 }
 
 impl<T: Clone + Copy> Mem<T> {
     pub fn new() -> Self {
-        Mem { mem: vec![None], malloced: HashMap::new() }
+        Mem {
+            mem: vec![None],
+            malloced: HashMap::new(),
+        }
     }
 
     pub fn malloc(&mut self, size: usize, init: T) -> usize {
@@ -19,16 +22,16 @@ impl<T: Clone + Copy> Mem<T> {
                     count += 1;
                     if count == size {
                         self.malloced.insert(start, size);
-                        for i in self.mem[start..start+size].iter_mut() {
+                        for i in self.mem[start..start + size].iter_mut() {
                             *i = Some(init);
                         }
                         return start;
                     }
-                },
+                }
                 Some(_) => {
                     count = 0;
                     start = idx + 1;
-                },
+                }
             }
         }
         start = self.mem.len();
@@ -40,12 +43,12 @@ impl<T: Clone + Copy> Mem<T> {
     pub fn free(&mut self, start: usize) -> bool {
         match self.malloced.get(&start) {
             Some(size) => {
-                for i in self.mem[start..start+size].iter_mut() {
+                for i in self.mem[start..start + size].iter_mut() {
                     *i = None;
                 }
                 self.malloced.remove(&start);
                 true
-            },
+            }
             None => false,
         }
     }
