@@ -12,6 +12,27 @@ use nom::multi::many0;
 use nom::combinator::{recognize, opt};
 use text_io::read;
 
+pub fn builtin_callables() -> HashMap<&'static str, Box<dyn FnMut(i128) -> i128>> {
+    let mut callables: HashMap<&str, Box<dyn FnMut(i128) -> i128>> = HashMap::new();
+    callables.insert("write_int", Box::new(|e| {
+        print!("{}", e);
+        e
+    }));
+    callables.insert("write_char", Box::new(|e| {
+        print!("{}", e as u8 as char);
+        e
+    }));
+    callables.insert("read_int", Box::new(|_| {
+        let res: i128 = read!();
+        res
+    }));
+    callables.insert("read_char", Box::new(|_| {
+        let res: char = read!();
+        res as i128
+    }));
+    callables
+}
+
 #[derive(Debug)]
 pub enum Expr<'a> {
     BinOp(&'a str, Box<Expr<'a>>, Box<Expr<'a>>),
@@ -22,69 +43,58 @@ pub enum Expr<'a> {
 }
 
 impl<'a> Expr<'a> {
-    pub fn eval(&self, registers: &'a HashMap<&'a str, i128>, mem: &mut Mem<i128>) -> i128 {
+    pub fn eval(&self, registers: &'a HashMap<&'a str, i128>, mem: &mut Mem<i128>, callables: &mut HashMap<&str, Box<dyn FnMut(i128) -> i128>>) -> i128 {
         match self {
             Expr::BinOp(op, l, r) => match op {
-                &"+" => l.eval(registers, mem) + r.eval(registers, mem),
-                &"-" => l.eval(registers, mem) - r.eval(registers, mem),
-                &"*" => l.eval(registers, mem) * r.eval(registers, mem),
-                &"/" => l.eval(registers, mem) / r.eval(registers, mem),
-                &"%" => l.eval(registers, mem) % r.eval(registers, mem),
-                &"^" => l.eval(registers, mem).pow(r.eval(registers, mem) as u32),
-                &">" => (l.eval(registers, mem) > r.eval(registers, mem)) as i128,
-                &">=" => (l.eval(registers, mem) >= r.eval(registers, mem)) as i128,
-                &"<" => (l.eval(registers, mem) < r.eval(registers, mem)) as i128,
-                &"<=" => (l.eval(registers, mem) <= r.eval(registers, mem)) as i128,
-                &"==" => (l.eval(registers, mem) == r.eval(registers, mem)) as i128,
-                &"!=" => (l.eval(registers, mem) != r.eval(registers, mem)) as i128,
-                &"&&" => (l.eval(registers, mem) !=0  && r.eval(registers, mem) != 0) as i128,
-                &"||" => (l.eval(registers, mem) !=0  || r.eval(registers, mem) != 0) as i128,
+                &"+" => l.eval(registers, mem, callables) + r.eval(registers, mem, callables),
+                &"-" => l.eval(registers, mem, callables) - r.eval(registers, mem, callables),
+                &"*" => l.eval(registers, mem, callables) * r.eval(registers, mem, callables),
+                &"/" => l.eval(registers, mem, callables) / r.eval(registers, mem, callables),
+                &"%" => l.eval(registers, mem, callables) % r.eval(registers, mem, callables),
+                &"^" => l.eval(registers, mem, callables).pow(r.eval(registers, mem, callables) as u32),
+                &">" => (l.eval(registers, mem, callables) > r.eval(registers, mem, callables)) as i128,
+                &">=" => (l.eval(registers, mem, callables) >= r.eval(registers, mem, callables)) as i128,
+                &"<" => (l.eval(registers, mem, callables) < r.eval(registers, mem, callables)) as i128,
+                &"<=" => (l.eval(registers, mem, callables) <= r.eval(registers, mem, callables)) as i128,
+                &"==" => (l.eval(registers, mem, callables) == r.eval(registers, mem, callables)) as i128,
+                &"!=" => (l.eval(registers, mem, callables) != r.eval(registers, mem, callables)) as i128,
+                &"&&" => (l.eval(registers, mem, callables) !=0  && r.eval(registers, mem, callables) != 0) as i128,
+                &"||" => (l.eval(registers, mem, callables) !=0  || r.eval(registers, mem, callables) != 0) as i128,
                 _ => unreachable!()
             },
             Expr::UnOp(op, e) => match op {
-                &"+" => e.eval(registers, mem),
-                &"-" => - e.eval(registers, mem),
+                &"+" => e.eval(registers, mem, callables),
+                &"-" => - e.eval(registers, mem, callables),
                 &"*" => {
-                    let start = e.eval(registers, mem);
+                    let start = e.eval(registers, mem, callables);
                     match mem.mem.get(start as usize) {
                         Some(Some(res)) => *res,
                         _ => panic!("visiting invalid memory")
                     }
                 },
-                &"!" => (e.eval(registers, mem) == 0) as i128,
+                &"!" => (e.eval(registers, mem, callables) == 0) as i128,
                 _ => unreachable!()
             },
             Expr::Call(fname, opt_e) => match (fname, opt_e) {
-                (&"write_int", Some(e)) => {
-                    let res = e.eval(registers, mem);
-                    print!("{}", res);
-                    res
-                },
-                (&"write_char", Some(e)) => {
-                    let res = e.eval(registers, mem);
-                    print!("{}", res as u8 as char);
-                    res
-                },
-                (&"read_int", None) => {
-                    let res: i128 = read!();
-                    res
-                },
-                (&"read_char", None) => {
-                    let res: char = read!();
-                    res as i128
-                },
                 (&"malloc", Some(e)) => {
-                    let size = e.eval(registers, mem) as usize;
+                    let size = e.eval(registers, mem, callables) as usize;
                     mem.malloc(size, 0) as i128
                 },
                 (&"free", Some(e)) => {
-                    let start = e.eval(registers, mem) as usize;
+                    let start = e.eval(registers, mem, callables) as usize;
                     mem.free(start) as i128
                 },
-                otherwise => panic!("invalid function call: {:?}", otherwise)
+                (&otherwise, e) => {
+                    let arg = e.as_ref()
+                        .and_then(|e| Some(e.eval(registers, mem, callables)))
+                        .unwrap_or(0);
+                    callables.get_mut(otherwise)
+                        .expect(&format!("undefined function: {:?}", otherwise))
+                    (arg)
+                }
             },
-            Expr::Int(i) => (*i) as i128,
-            Expr::Ident(x) => *registers.get(x).expect(&format!("undefined variable {x}"))
+            Expr::Int(i) => *i,
+            Expr::Ident(x) => *registers.get(x).expect(&format!("undefined variable: {x}"))
         }
     }
 }
@@ -248,10 +258,10 @@ pub enum Cmd<'a> {
 }
 
 impl<'a> Cmd<'a> {
-    pub fn exec(&self, registers: &mut HashMap<&'a str, i128>, mem: &mut Mem<i128>) {
+    pub fn exec(&self, registers: &mut HashMap<&'a str, i128>, mem: &mut Mem<i128>, callables: &mut HashMap<&str, Box<dyn FnMut(i128) -> i128>>) {
         match self {
             Cmd::Expr(e) => {
-                e.eval(registers, mem);
+                e.eval(registers, mem, callables);
             },
             Cmd::Decl(ident) => {
                 registers.insert(ident, 0);
@@ -259,8 +269,8 @@ impl<'a> Cmd<'a> {
             Cmd::Assign(e1, e2) => {
                 match e1.borrow() {
                     Expr::UnOp("*", e1) => {
-                        let tmp = e2.eval(registers, mem);
-                        let index = e1.eval(registers, mem) as usize;
+                        let tmp = e2.eval(registers, mem, callables);
+                        let index = e1.eval(registers, mem, callables) as usize;
                         match mem.mem.get_mut(index) {
                             Some(m) => {
                                 *m = Some(tmp);
@@ -269,7 +279,7 @@ impl<'a> Cmd<'a> {
                         }
                     },
                     Expr::Ident(ident) => {
-                        let tmp = e2.eval(registers, mem);
+                        let tmp = e2.eval(registers, mem, callables);
                         registers.insert(ident, tmp);
                     },
                     _ => panic!("cannot assign to {:?}", e1)
@@ -277,20 +287,20 @@ impl<'a> Cmd<'a> {
             },
             Cmd::Seq(arr) => {
                 for c in arr.iter() {
-                    c.exec(registers, mem);
+                    c.exec(registers, mem, callables);
                 }
             },
             Cmd::If(cond, c1, c2) => {
-                if cond.eval(registers, mem) != 0 {
-                    c1.exec(registers, mem);
+                if cond.eval(registers, mem, callables) != 0 {
+                    c1.exec(registers, mem, callables);
                 }
                 else {
-                    c2.exec(registers, mem);
+                    c2.exec(registers, mem, callables);
                 }
             },
             Cmd::While(cond, c) => {
-                while cond.eval(registers, mem) != 0 {
-                    c.exec(registers, mem);
+                while cond.eval(registers, mem, callables) != 0 {
+                    c.exec(registers, mem, callables);
                 }
             },
         };
@@ -390,7 +400,7 @@ fn test_eval_expr() {
     let mut registers = HashMap::new();
     registers.insert("k", 3000);
     println!("{:?} {:?}", remaining_input, output);
-    println!("{}", output.eval(&registers, &mut Mem::new()));
+    println!("{}", output.eval(&registers, &mut Mem::new(), &mut builtin_callables()));
 }
 
 #[test]
@@ -420,7 +430,8 @@ fn test_parse_cmd() {
 
 #[test]
 fn test_exec_cmd() {
-    let (registers, mem) = (&mut HashMap::new(), &mut Mem::new());
+    let (mut registers, mut mem) = (HashMap::new(), Mem::new());
+    let mut callables = builtin_callables();
     parse_cmd("
     var n; var i; var p; var q; var s;
     n = read_int();
@@ -441,6 +452,18 @@ fn test_exec_cmd() {
     };
     write_int(s);
     write_char(10)
-    ").unwrap().1.exec(registers, mem);
+    ").unwrap().1.exec(&mut registers, &mut mem, &mut callables);
+    println!("{:?}", (registers, mem));
+}
+
+#[test]
+fn test_rustfunc() {
+    let (mut registers, mut mem) = (HashMap::new(), Mem::new());
+    let mut callables = builtin_callables();
+    callables.insert("add2", Box::new(|x| x + 2));
+    parse_cmd("
+    write_int(add2(100));
+    write_char(10)
+    ").unwrap().1.exec(&mut registers, &mut mem, &mut callables);
     println!("{:?}", (registers, mem));
 }
